@@ -1,0 +1,367 @@
+---
+title: "STAT420 Su21 - Final Project - Team Sydney"
+author:
+- Cyril Karpenko <kyrylok2@illinois.edu>
+- Paul Whitely <whitely3@illinois.edu>
+- Supriya Puri <puri6@illinois.edu>
+date: "08/04/2021"
+output:
+  html_document:
+    toc: yes
+  pdf_document: default
+  word_document:
+    toc: yes
+subtitle: Analysis of Airbnb data for Sydney, Australia
+urlcolor: cyan
+---
+
+```{r setup, echo = FALSE, message = FALSE, warning = FALSE}
+options(scipen = 1, digits = 4, width = 80, fig.alin = "center")
+
+
+library(broom)
+library(stringr)
+library(sets)
+library(ggplot2)
+library(ggforce)
+library(plyr)
+library(dplyr)
+library(rgdal)
+library(tmap)
+library(ggmap)
+library(raster)
+library(rgeos)
+library(lubridate)
+library(car)
+library(lmtest)
+library(kableExtra)
+
+library(ggmap)
+library(devtools)
+
+completeFun <- function(data, desiredCols) {
+  return (data %>% filter_at(all_of(desiredCols),all_vars(!is.na(.))))
+}
+
+
+plot_fitted_resid <- function(model, pointcol = "dodgerblue", linecol = "darkorange") {
+  plot(fitted(model), resid(model), 
+       col = pointcol, pch = 20, cex = 1.5,
+       xlab = "Fitted", ylab = "Residuals")
+  abline(h = 0, col = linecol, lwd = 2)
+}
+
+plot_qq <- function(model, pointcol = "dodgerblue", linecol = "darkorange") {
+  qqnorm(resid(model), col = pointcol, pch = 20, cex = 1.5)
+  qqline(resid(model), col = linecol, lwd = 2)
+}
+
+ggmap::register_google(key = "AIzaSyC84wtCMLowKYfBRHRa7qxLf-dB0KMAdXA", write = TRUE)
+```
+
+
+## Overview
+
+Through this project, our primary aim is to analyze the Airbnb data for Sydney, Australia in order to understand how various predictors influence the rental price of the properties. Prices vary mostly on the basis of the types of property, rooms, the neighborhood, proximity to tourist spots etc. However, we certainly cannot overlook other variables like number of beds, cleaning fee, number of nights as these factors help in selecting a particular Airbnb listing.
+
+We chose 'Sydney, Australia Airbnb data' because it sounded like an interesting region to study and also the Airbnb data is sufficiently large, accurate and readily available to be both useful and timely to study.
+
+### Why do we want to look at Airbnb data?
+
+In recent years, we have observed how the use of various collaborative platforms like Airbnb, Uber, Zipcar have become prevalent and how these platforms present a more unique, personalized way of experiencing the world in a budget friendly manner. 
+
+As a potential guest, one might wonder what factors govern the price for a property - whether the listed price is fair according to the facilities provided or the neighborhood it is in. 
+
+In a similar manner, the potential owners might want to determine what should be an ideal rental price for the property and how they can improve/upgrade the property to gain more monetary benefits. 
+
+Since its humble beginnings, Airbnb has made no secret of its heavy use of data science to build new product offerings, improve its service and capitalize on new marketing initiatives. Similarly, users and hosts rely on data science to gain better economic benefits. 
+
+
+## Dataset
+
+In this study, we will rely on the open Airbnb and New South Wales government data obtained from the following dataset hosted on Kaggle: 
+
+- Airbnb Listings - [Link](https://www.kaggle.com/tylerx/sydney-airbnb-open-data)
+
+# Final project
+
+```{r, echo=FALSE, warning=FALSE}
+airbnb = read.csv("listings_dec18.csv")
+```
+
+
+Our primary dataset has $`r ncol(airbnb)`$ columns and $`r nrow(airbnb)`$ rows of listings data. From the given variables, we believe that below mentioned variables are among the ones which have greatest importance:
+
+-`zipcode` - tells the location of the property, whether closer to beach or a historical location or business center.
+- `property_type` – is it an apartment, a townhouse or a house
+- `room_type` – whether the listing is for a private room or the entire property
+- `accommodates` – how many people can stay at a time in the property
+- `beds` – how many beds are available to accommodate guests
+- `bathrooms` – number of bathrooms vary per the guests visiting
+- `amenities` – internet, parking, washer included 
+- `house_rules` – provides information on what is or is not allowed for guests to do during the duration of their stay: keeping pets, smoking, having parties, etc.
+- `cleaning_fee` – since it adds on to the total final price 
+- `number_of_reviews` – the properties with more reviews are generally booked early.            
+- `minimum_nights` – what is the minimum number of nights that guest has to pay to rent the property
+
+The goal of our research is to understand the relation between various parameters of listed properties and their advertised renting price.
+
+## Data cleaning
+
+Before starting with the actual analysis of data we need to perform some cleaning on the source records, including:
+- Conversion of data formats into either a numeric or a categorical domain
+- Removal of unnecessary columns (mainly text descriptions)
+- Fixing records with values missing in fields selected as potential predictors: removing them or finding a suitable default value
+
+
+First we going to drop all fields that are not going to be included into any of candidate models:
+```{r, echo=FALSE}
+drop_cols = data.frame(
+  name = c(
+    "description", "city", "street", "name", "listing_url", "host_location", 
+    "summary", "transit","access", "thumbnail_url", "space", "xl_picture_url", "host_name", 
+    "host_response_rate", "calendar_last_scraped", "calendar_updated", "host_about", 
+    "interaction", "picture_url", "host_url", "neighbourhood_cleansed", "neighbourhood_group_cleansed", 
+    "terms", "extra_people", "cancellation_policy", "medium_url", "notes", "host_thumbnail_url", 
+    "host_picture_url", "last_scraped", "neighborhood_overview", "scrape_id", "host_id", "host_has_profile_pic", 
+    "host_since", "access", "host_about", "host_is_superhost", "host_listings_count", "host_verifications", "host_identity_verified", "market",
+    "has_availability", "availability_365", "availability_60", "availability_90", "first_review", "last_review",
+    "requires_license", "jurisdiction_names", "is_business_travel_ready", "listing_url", "host_response_time", "host_acceptance_rate",
+    "require_guest_phone_verification", "calculated_host_listings_count", "state", "weekly_price", "instant_bookable", "country_code",
+    "is_location_exact", "country", "monthly_price", "host_neighbourhood", "host_total_listings_count", "license", "reviews_per_month",
+    "smart_location", "square_feet", "review_scores_rating", "number_of_reviews", "review_scores_accuracy", "review_scores_location",
+    "review_scores_communication", "review_scores_cleanliness", "review_scores_checkin", "require_guest_profile_picture", "review_scores_value",
+    "experiences_offered"))
+
+
+airbnb = airbnb[ , !(names(airbnb) %in% drop_cols$name)]
+```
+
+No, we are going to convert types and filter out all the records with values missing in any of potential predictors where the default value can't be picked without having potentially significant effect on quality of the model:
+
+```{r}
+
+# Convert column values from strings to numeric representations
+
+airbnb$zipcode = as.factor(strtoi(airbnb$zipcode))
+
+airbnb$security_deposit = strtoi(str_replace(str_replace(str_replace(airbnb$security_deposit, "\\$", ""), ".00$", ""), ",", ""))
+airbnb$price = strtoi(str_replace(str_replace(str_replace(airbnb$price, "\\$", ""), ".00$", ""), ",", ""))
+airbnb$cleaning_fee = strtoi(str_replace(str_replace(str_replace(airbnb$cleaning_fee, "\\$", ""), ".00$", ""), ",", ""))
+
+airbnb$bathrooms = as.factor(airbnb$bathrooms)
+airbnb$beds = as.factor(airbnb$beds)
+airbnb$bedrooms = as.factor(airbnb$bedrooms)
+
+# Create dummy variables based on `amenities` column
+airbnb$offers_free_parking = str_detect(airbnb$amenities, "Paid parking off premises")
+airbnb$offers_breakfast = str_detect(airbnb$amenities, "Breakfast")
+airbnb$amenities_tv = str_detect(airbnb$amenities, "TV")
+airbnb$amenities_internet = str_detect(airbnb$amenities, "Internet")
+airbnb$amenities_bathtub = str_detect(airbnb$amenities, "Bathtub")
+
+# Create dummy variables based on `house_rules` column
+airbnb$no_smoking = str_detect(airbnb$house_rules, "no smoking")
+
+# Remove source columns from which dummy variables were created
+airbnb = subset(airbnb, select=-c(amenities, house_rules))
+airbnb = subset(airbnb, price != 0)
+
+airbnb_complete = completeFun(airbnb, c("price", "beds", "property_type", "bathrooms", "zipcode"))
+
+```
+
+
+Now, we're just going to fix records where the missing values can be replaced with some default option:
+```{r}
+airbnb_complete$security_deposit[is.na(airbnb_complete$security_deposit)] = 0
+airbnb_complete$cleaning_fee[is.na(airbnb_complete$cleaning_fee)] = 0
+```
+
+And as a last step, we'll be converting all character and logical fields into factors:
+```{r}
+var_mode <- sapply(airbnb_complete, mode)
+var_class <- sapply(airbnb_complete, class)
+ind1 <- which(var_mode %in% c("logical", "character"))
+
+airbnb_complete[ind1] <- lapply(airbnb_complete[ind1], as.factor)
+```
+
+After the preliminary cleansing procedure, the number of columns and rows in the main dataset has dropped to $`r ncol(airbnb_complete)`$ and $`r nrow(airbnb_complete)`$ respectively. Below are the first 10 records from the listings dataset:
+```{r, echo=FALSE}
+head(airbnb_complete[,c(1, 9, 13, 17, 18, 21, 22, 10, 11)], n =10) %>% 
+  kbl(caption="Cleansed dataset records") %>%
+  kable_classic()
+```
+
+=======
+## Data analysis
+
+#### Distribution of prices by ZIP 
+
+We are going now to check whether there is any direct relation between ZIP code and the property rental price and what parts of the city are considered the most/least expensive. 
+
+```{r echo=FALSE, warning=FALSE}
+price_quantiles = quantile(airbnb_complete$price)
+price_quantiles
+
+airbnb_complete$price_ratio = as.factor(airbnb_complete$price/mean(airbnb_complete$price))
+
+m = get_map(location = "Sydney", zoom = 12, maptype = "terrain") %>% ggmap()
+
+price_points = function(start, end) {
+  return (airbnb_complete[airbnb_complete$price > start & airbnb_complete$price < end,])
+}
+
+p4 = price_quantiles['100%']
+p3 = price_quantiles['75%']
+p2 = price_quantiles['50%']
+p1 = price_quantiles['25%']
+
+airbnb_complete$price_group = as.factor(ifelse(airbnb_complete$price > p4, 'black',
+  ifelse(airbnb_complete$price > p3 & airbnb_complete$price < p4 , 'red',
+    ifelse(airbnb_complete$price > p2 & airbnb_complete$price < p3, 'orange', 
+         ifelse(airbnb_complete$price > p1 & airbnb_complete$price < p2, 'yellow', 'gray')))))
+
+m + 
+  geom_point(data = airbnb_complete, mapping=aes(x = longitude, y = latitude, colour = price_group), alpha = 1, size = 1) + 
+  scale_color_manual( values = c("green", "orange", "red", "yellow"),  name = "Price groups", labels = c(paste("> ", price_quantiles['0%']),
+                                                                                                        paste("> ", price_quantiles['50%']),
+                                                                                                        paste("> ", price_quantiles['75%']), 
+                                                                                      paste("> ", price_quantiles['25%'])
+                                                                                      
+                                                                                    ))
+
+```
+As it is seen from the plot above, there is a clear relation between the property's location and its listed price. Most expensive properties are in close proximity to the beach line, the cheapest are far from it. 
+
+
+### Distribution of prices according to the Property type
+```{r}
+ggplot(data = airbnb_complete) + geom_bar (aes(x= property_type), width = 0.3 , fill = "#FF6666")+ggtitle(label = "Total count for various property_types")+theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+```
+
+
+
+There are more apartment rental properties than houses, guest suites and condominium. Approximately, `r plyr::count(airbnb_complete$property_type)[2,2]` airbnb rentals are 'Apartments'.
+
+```{r}
+ggplot(data = airbnb_complete , aes(x=property_type, y = price, color= room_type))+ggtitle(label = "Property types in Sydney and their prices") +geom_point()+theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+```
+
+
+On further analysis, we found out that most of the properties in Sydney are listed as `Entire homes` but there are options for the guests to share the rental property with other travelers. 
+
+#### Distribution of prices according to types of the rooms available
+
+```{r}
+qplot(room_type, data = airbnb_complete, facets = room_type ~., width = 0.1, fill = "#FF6666", main = "Count of various room_types options in rental properties in Sydney")
+```
+
+
+There are around `r plyr::count(airbnb_complete$property_type)[1,2]` Entire Houses, `r plyr::count(airbnb_complete$property_type)[2,2]` Private Rooms and `r plyr::count(airbnb_complete$property_type)[2,2]` Shared Rooms available for the guests to choose from in the airbnb listings. 
+
+```{r}
+ggplot(data = airbnb_complete , aes(x=room_type, y = price))+ggtitle(label = "Room types vs prices") +geom_point()+theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+```
+
+The 'Entire Homes' are more available for the guests and are comparatively costlier than the Private and shared rooms.  
+
+
+#### Do prices vary with increase in the number of guests?
+
+
+```{r}
+ggplot(data = airbnb_complete , aes(x=accommodates, y = price, col = room_type))+ggtitle(label = "How price changes with change in people the rental accomodates") +geom_point()+xlim(2,17)
+
+```
+
+The prices are not affected much with the how many people can stay in the airbnb. 
+
+#### How does cleaning_fee influence the prices?
+```{r}
+
+ggplot(data = airbnb_complete , aes(x=cleaning_fee, y = price))+ggtitle(label = "How much cleaing fee adds to the price of the property") +geom_point()
+
+```
+
+Cleaning fee is an additional fee added along with the price of the airbnb. The estimated cleaning fee is upto $500 depending on the airbnb size.  
+
+
+
+#### Can an airbnb be rented for a whole month and does prices vary with increase in length of stay?
+```{r}
+ggplot(data = airbnb_complete , aes(x= availability_30, y = price, col = property_type))+ggtitle(label = " Which properties are available 30 days a month and their prices") +geom_point()
+```
+
+The prices are not much influenced with the length of stay. 
+
+
+#### Do amenities add on to the price?
+```{r}
+ggplot(data = airbnb_complete , aes(x= amenities_internet, y = price, col = property_type))+ggtitle(label = " Which properties are available 30 days a month and their prices?") +geom_point()
+
+```
+
+Internet has been an most important amenity in the rentals and most of the airbnb properties seem to have included it at no additional price. 
+
+
+##Collinearity:
+
+`Collinearity` often called `multicollinearity` is a phenomenon between predictor variables (or independent variables), such that they express a linear relationship in a regression model. When predictor variables in the same regression model are correlated, they cannot independently predict the value of the dependent variable. Basically, they explain some of the same variance in the dependent variable, which in turn reduces their statistical significance.
+
+
+Here, we are trying to find collinearity between the numeric variables in the `airbnb_complete` dataset, to further understand if the predictors are dependent on one another while calculating the price model.
+```{r}
+airbnb_numeric = dplyr::select_if(airbnb_complete, is.numeric)
+```
+
+```{r}
+library(faraway)
+pairs(airbnb_numeric[1:1000,], col = "dodgerblue")
+```
+
+```{r}
+round(cor(airbnb_numeric), 2)
+```
+'price' seems to have a high collinearity with 'accomodates', 'cleaning fee' and the 'security_deposit' and insignificant collinearity with the no.  of nights a guest stays in airbnb. Also, predictor 'accomodates' share a high collinearity with  'cleaning_fee', 'security_deposits' and the 'guests_included'. 
+
+## Candidate models
+
+```{r, echo=FALSE}
+# Starting model
+
+model_01 = lm(log(price) ~ poly(accommodates, 2) +
+          bedrooms + 
+          cleaning_fee + 
+          availability_30 + 
+          zipcode + 
+          amenities_tv +
+          amenities_internet +
+          amenities_bathtub +
+          guests_included +
+          longitude +
+          latitude +
+          room_type +
+          zipcode:cleaning_fee, data=airbnb_complete)
+
+
+plot_qq(model_01)
+
+predictions = predict(model_01, newdata=airbnb_complete)
+plot(predictions ~ airbnb_complete$price)
+bptest(model_01)
+```
+
+The base, non-enhanced full additive model has $`r length(coefficients(model_01))`$ coefficients in total. And below are its **Q-Q** and **fitted vs residuals** plots displaying obvious violations in both normality and constant variance assumptions which we are aiming to solve in this analysis project:
+
+```{r, echo=FALSE}
+par(mfrow=c(1, 2))
+plot_qq(model_01)
+plot_fitted_resid(model_01)
+```
+
+## Models validation
+
+
+## Conclusion
